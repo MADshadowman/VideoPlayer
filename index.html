@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>VideoPlayer</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Manrope:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="app-shell" id="appShell">
+      <header class="topbar">
+        <div class="brand-block">
+          <p class="eyebrow">Personal Video Library</p>
+          <h1>VideoPlayer</h1>
+        </div>
+        <div class="topbar-actions">
+          <span id="engineBadge" class="source-badge" title="Playback engine mode">Engine: Native</span>
+          <span id="librarySourceBadge" class="source-badge" title="Where the library was loaded from">Source: -</span>
+          <label class="search-wrap" for="searchInput">
+            <span class="sr-only">Search videos</span>
+            <input id="searchInput" type="search" placeholder="Search title, tag, codec..." autocomplete="off" />
+          </label>
+          <button id="pickFolderBtn" class="ghost-btn" type="button">Open Folder</button>
+          <button id="reloadLibraryBtn" class="ghost-btn" type="button">Reload</button>
+        </div>
+      </header>
+
+      <main class="main-grid" id="mainGrid">
+        <section class="player-panel" id="playerPanel">
+          <div class="video-stage" id="videoStage">
+            <div class="zoom-layer" id="zoomLayer">
+              <video id="video" preload="metadata" playsinline></video>
+            </div>
+            <button id="bigPlayBtn" class="big-play" type="button" aria-label="Play or pause">â–¶</button>
+            <div class="meta-ribbon" id="metaRibbon">
+              <span id="nowPlayingTitle">No video selected</span>
+              <span id="nowPlayingStats">-</span>
+            </div>
+            <div class="player-overlay" id="playerOverlay">
+              <div class="timeline-wrap">
+                <input id="seekSlider" type="range" min="0" max="1000" value="0" step="1" aria-label="Seek" />
+                <div class="timeline-labels">
+                  <span id="currentTimeLabel">00:00</span>
+                  <span id="totalTimeLabel">00:00</span>
+                </div>
+              </div>
+
+              <div class="controls-row">
+                <div class="controls-left">
+                  <button id="prevBtn" type="button" class="icon-btn" title="Previous">â®</button>
+                  <button id="playPauseBtn" type="button" class="icon-btn" title="Play/Pause">â–¶</button>
+                  <button id="nextBtn" type="button" class="icon-btn" title="Next">â­</button>
+                  <button id="muteBtn" type="button" class="icon-btn" title="Mute">ðŸ”Š</button>
+                  <input id="volumeSlider" type="range" min="0" max="1" value="1" step="0.01" aria-label="Volume" />
+                </div>
+
+                <div class="controls-right">
+                  <button id="zoomToggleBtn" type="button" class="icon-btn" title="Toggle Zoom">ðŸ”</button>
+                  <button id="miniPlayerBtn" type="button" class="icon-btn" title="Mini Player">ðŸ——</button>
+                  <button id="theaterBtn" type="button" class="icon-btn" title="Theater Mode">â—«</button>
+                  <button id="fullscreenBtn" type="button" class="icon-btn" title="Fullscreen">â›¶</button>
+                  <button id="settingsBtn" type="button" class="icon-btn" title="Settings">âš™</button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="settings-panel" id="settingsPanel" hidden>
+            <div class="setting-item">
+              <label for="speedSelect">Playback speed</label>
+              <select id="speedSelect">
+                <option value="0.5">0.5x</option>
+                <option value="0.75">0.75x</option>
+                <option value="1" selected>1.0x</option>
+                <option value="1.25">1.25x</option>
+                <option value="1.5">1.5x</option>
+                <option value="1.75">1.75x</option>
+                <option value="2">2.0x</option>
+              </select>
+            </div>
+            <div class="setting-item">
+              <label for="zoomSlider">Zoom level</label>
+              <input id="zoomSlider" type="range" min="1" max="3" step="0.1" value="1" />
+            </div>
+            <div class="setting-item">
+              <label for="fitSelect">Video fit</label>
+              <select id="fitSelect">
+                <option value="contain" selected>Contain</option>
+                <option value="cover">Cover</option>
+              </select>
+            </div>
+            <div class="setting-item toggle-item">
+              <label for="autoplayToggle">Autoplay next</label>
+              <input id="autoplayToggle" type="checkbox" checked />
+            </div>
+          </div>
+        </section>
+
+        <aside class="library-panel" id="libraryPanel">
+          <div class="library-head">
+            <h2>Library</h2>
+            <span id="resultCount">0 videos</span>
+          </div>
+          <div id="libraryList" class="library-list" aria-live="polite"></div>
+        </aside>
+      </main>
+    </div>
+
+    <template id="videoCardTemplate">
+      <button class="video-card" type="button">
+        <div class="thumb-wrap">
+          <img class="thumb" alt="" loading="lazy" />
+          <span class="duration-pill"></span>
+        </div>
+        <div class="card-body">
+          <p class="card-title"></p>
+          <p class="card-meta"></p>
+          <p class="card-codec"></p>
+        </div>
+      </button>
+    </template>
+
+    <input id="folderInput" class="sr-only" type="file" webkitdirectory directory multiple />
+
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>
