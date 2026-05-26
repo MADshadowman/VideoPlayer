@@ -7,6 +7,9 @@ const THUMBNAIL_TARGET_WIDTH = 480;
 const THUMBNAIL_CONCURRENCY = 3;
 const THUMBNAIL_CACHE_DB = "vp_thumb_cache_v1";
 const THUMBNAIL_CACHE_STORE = "thumbs";
+const PLAYBACK_BLOB_CACHE_MAX_BYTES = 768 * 1024 * 1024;
+const PLAYBACK_BLOB_FETCH_TIMEOUT_MS = 180000;
+const PLAYBACK_BLOB_WARMUP_DELAY_MS = 250;
 const PLACEHOLDER_POSTER =
   "data:image/svg+xml;utf8," +
   encodeURIComponent(`<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 640 360'><defs><linearGradient id='g' x1='0' x2='1'><stop stop-color='#182636' offset='0'/><stop stop-color='#20364e' offset='1'/></linearGradient></defs><rect width='640' height='360' fill='url(#g)'/><g fill='none' stroke='#4dd4ff' stroke-opacity='.4'><circle cx='540' cy='80' r='60'/><circle cx='120' cy='290' r='92'/></g><path d='M285 130v100l86-50-86-50z' fill='#e8f6ff' fill-opacity='.85'/></svg>`);
@@ -16,6 +19,7 @@ const state = {
   filteredIndices: [],
   currentVideoIndex: -1,
   autoplayNext: true,
+  repeatCurrent: false,
   theaterMode: false,
   settingsOpen: false,
   searchTerm: "",
@@ -26,6 +30,10 @@ const state = {
   isDraggingZoom: false,
   lastPointer: { x: 0, y: 0 },
   resumeMap: {},
+  isScrubbing: false,
+  scrubResumeAfterSeek: false,
+  scrubPointerId: null,
+  scrubTargetTime: 0,
   metadataHydrationRunning: false,
   librarySource: "Unknown",
   localObjectUrls: [],
@@ -38,6 +46,7 @@ const refs = {
   playerPanel: document.getElementById("playerPanel"),
   videoStage: document.getElementById("videoStage"),
   zoomLayer: document.getElementById("zoomLayer"),
+  videoCanvas: document.getElementById("videoCanvas"),
   video: document.getElementById("video"),
   bigPlayBtn: document.getElementById("bigPlayBtn"),
   nowPlayingTitle: document.getElementById("nowPlayingTitle"),
@@ -58,8 +67,8 @@ const refs = {
   settingsPanel: document.getElementById("settingsPanel"),
   speedSelect: document.getElementById("speedSelect"),
   zoomSlider: document.getElementById("zoomSlider"),
-  fitSelect: document.getElementById("fitSelect"),
   autoplayToggle: document.getElementById("autoplayToggle"),
+  repeatToggle: document.getElementById("repeatToggle"),
   libraryList: document.getElementById("libraryList"),
   resultCount: document.getElementById("resultCount"),
   searchInput: document.getElementById("searchInput"),
@@ -72,6 +81,8 @@ const refs = {
 };
 
 let seekRAF = 0;
+let scrubPreviewTimer = 0;
+let scrubPreviewPendingTime = -1;
 let lastResumeWrite = 0;
 let libraryRenderTimer = 0;
 const thumbnailInFlight = new Set();
@@ -81,14 +92,65 @@ const thumbnailQueue = [];
 let thumbnailWorkersActive = 0;
 let mediabunnyModulePromise = null;
 let thumbnailDbPromise = null;
-const mediaBunnyDecodeCache = new Map();
+const playbackBlobCache = new Map();
+const playbackBlobInFlight = new Map();
+const playerState = {
+  src: "",
+  duration: 0,
+  currentTime: 0,
+  paused: true,
+  playbackRate: 1,
+  volume: 1,
+  muted: false,
+};
+const mbEngine = {
+  source: null,
+  input: null,
+  videoTrack: null,
+  audioTrack: null,
+  canvasSink: null,
+  audioSink: null,
+  audioContext: null,
+  gainNode: null,
+  isReady: false,
+  isPlaying: false,
+  playStartMediaTime: 0,
+  playStartPerfMs: 0,
+  stopToken: 0,
+  audioSchedulerId: 0,
+  audioScheduledUntil: 0,
+  audioNodes: [],
+  renderLoopHandle: 0,
+  sourceMode: "",
+  audioClockStartCtxTime: 0,
+  audioClockStartMediaTime: 0,
+};
 
 bootstrap();
 
 async function bootstrap() {
   bindEvents();
   hydratePreferences();
+  refs.prevBtn.textContent = "Previous";
+  refs.prevBtn.setAttribute("data-icon", "prev");
+  refs.nextBtn.textContent = "Next";
+  refs.nextBtn.setAttribute("data-icon", "next");
+  refs.playPauseBtn.textContent = "Play";
+  refs.muteBtn.textContent = "Volume";
+  refs.zoomToggleBtn.textContent = "Zoom";
+  refs.zoomToggleBtn.setAttribute("data-icon", "zoom");
+  refs.miniPlayerBtn.textContent = "Mini player";
+  refs.miniPlayerBtn.setAttribute("data-icon", "pip");
+  refs.theaterBtn.textContent = "Theater mode";
+  refs.theaterBtn.setAttribute("data-icon", "theater");
+  refs.fullscreenBtn.textContent = "Fullscreen";
+  refs.settingsBtn.textContent = "Settings";
+  refs.bigPlayBtn.textContent = "Play";
+  refs.settingsPanel.style.display = "none";
   refs.settingsBtn.setAttribute("aria-expanded", "false");
+  refs.settingsBtn.setAttribute("data-state", "closed");
+  refs.playPauseBtn.setAttribute("data-state", "paused");
+  refs.fullscreenBtn.setAttribute("data-state", "enter");
   updatePlaybackEngineBadge("Native");
   updateLibrarySourceBadge("Loading...");
   await loadLibrary();
@@ -102,31 +164,30 @@ function bindEvents() {
   refs.muteBtn.addEventListener("click", toggleMute);
   refs.volumeSlider.addEventListener("input", onVolumeInput);
   refs.seekSlider.addEventListener("input", onSeekInput);
+  refs.seekSlider.addEventListener("pointerdown", onSeekPointerDown);
+  refs.seekSlider.addEventListener("pointerup", onSeekPointerUp);
+  refs.seekSlider.addEventListener("pointercancel", onSeekPointerUp);
   refs.theaterBtn.addEventListener("click", toggleTheaterMode);
   refs.fullscreenBtn.addEventListener("click", toggleFullscreen);
   refs.settingsBtn.addEventListener("click", toggleSettingsPanel);
+  refs.settingsBtn.addEventListener("pointerdown", (event) => event.stopPropagation());
+  refs.settingsPanel.addEventListener("pointerdown", (event) => event.stopPropagation());
   refs.speedSelect.addEventListener("change", onSpeedChange);
   refs.zoomSlider.addEventListener("input", onZoomSliderInput);
   refs.zoomToggleBtn.addEventListener("click", toggleZoomMode);
-  refs.fitSelect.addEventListener("change", onFitChange);
   refs.autoplayToggle.addEventListener("change", onAutoplayToggle);
+  refs.repeatToggle.addEventListener("change", onRepeatToggle);
   refs.miniPlayerBtn.addEventListener("click", toggleMiniPlayer);
   refs.searchInput.addEventListener("input", onSearchInput);
   refs.reloadLibraryBtn.addEventListener("click", loadLibrary);
   refs.pickFolderBtn.addEventListener("click", onPickFolderClick);
   refs.folderInput.addEventListener("change", onFolderInputChange);
 
-  refs.video.addEventListener("play", onPlayStateChange);
-  refs.video.addEventListener("pause", onPlayStateChange);
-  refs.video.addEventListener("loadedmetadata", onLoadedMetadata);
-  refs.video.addEventListener("timeupdate", scheduleSeekUpdate);
-  refs.video.addEventListener("ended", onVideoEnded);
-  refs.video.addEventListener("volumechange", onVolumeChange);
-  refs.video.addEventListener("error", onVideoError);
-
   document.addEventListener("keydown", onKeyDown);
   document.addEventListener("pointerdown", onDocumentPointerDown);
   document.addEventListener("fullscreenchange", onFullscreenChange);
+  window.addEventListener("resize", onViewportChange);
+  document.addEventListener("scroll", onViewportChange, true);
   refs.videoStage.addEventListener("wheel", onZoomWheel, { passive: false });
 
   refs.zoomLayer.addEventListener("pointerdown", onZoomPointerDown);
@@ -145,19 +206,20 @@ function hydratePreferences() {
 
   state.theaterMode = localStorage.getItem("vp_theater_mode") === "1";
   state.autoplayNext = localStorage.getItem("vp_autoplay_next") !== "0";
+  state.repeatCurrent = localStorage.getItem("vp_repeat_current") === "1";
 
   const savedVolume = Number(localStorage.getItem("vp_volume") || "1");
-  refs.video.volume = Number.isFinite(savedVolume) ? clamp(savedVolume, 0, 1) : 1;
-  refs.video.muted = localStorage.getItem("vp_muted") === "1";
+  playerState.volume = Number.isFinite(savedVolume) ? clamp(savedVolume, 0, 1) : 1;
+  playerState.muted = localStorage.getItem("vp_muted") === "1";
 
   const savedSpeed = localStorage.getItem("vp_speed") || "1";
   refs.speedSelect.value = savedSpeed;
-  refs.video.playbackRate = Number(savedSpeed) || 1;
+  playerState.playbackRate = Number(savedSpeed) || 1;
 
   refs.autoplayToggle.checked = state.autoplayNext;
-  refs.volumeSlider.value = String(refs.video.volume);
-  refs.fitSelect.value = localStorage.getItem("vp_fit") || "contain";
-  refs.video.style.objectFit = refs.fitSelect.value;
+  refs.repeatToggle.checked = state.repeatCurrent;
+  refs.volumeSlider.value = String(playerState.volume);
+  refs.videoCanvas.style.objectFit = "contain";
 
   if (state.theaterMode) {
     refs.appShell.classList.add("theater");
@@ -168,13 +230,13 @@ function hydratePreferences() {
 
 async function loadLibrary() {
   setListStatus("Loading library...");
+  await teardownPlaybackEngine();
   cleanupLocalObjectUrls();
   thumbnailInFlight.clear();
   thumbnailDone.clear();
   thumbnailQueued.clear();
   thumbnailQueue.length = 0;
   thumbnailWorkersActive = 0;
-  mediaBunnyDecodeCache.clear();
 
   let loadedFrom = "Unknown";
   let autoLibraryError = "";
@@ -723,18 +785,72 @@ async function loadMediaBunnyModule() {
   return mediabunnyModulePromise;
 }
 
-function getMediaBunnySource(mediabunnyModule, source) {
+function createBlobMediaSource(mediabunnyModule, blob) {
+  return new mediabunnyModule.BlobSource(blob, {
+    maxCacheSize: 32 * 1024 * 1024,
+    useStreamReader: false,
+  });
+}
+
+function createUrlMediaSource(mediabunnyModule, src) {
+  return new mediabunnyModule.UrlSource(src, {
+    requestInit: { cache: "force-cache" },
+    parallelism: 1,
+    // Stop noisy endless retries on hosts with unstable HTTP2 range responses.
+    getRetryDelay: (previousAttempts) => (previousAttempts >= 1 ? null : 0.25),
+  });
+}
+
+async function createMediaBunnySource(mediabunnyModule, source, options = {}) {
+  const mode = options.mode || "playback";
+  const preferUrl = Boolean(options.preferUrl);
+
   if (source.file instanceof Blob) {
-    return new mediabunnyModule.BlobSource(source.file);
+    return {
+      source: createBlobMediaSource(mediabunnyModule, source.file),
+      mode: "blob-local",
+    };
   }
-  return new mediabunnyModule.UrlSource(source.src);
+
+  if (!source?.src) {
+    throw new Error("Missing media source path");
+  }
+
+  if (mode === "thumbnail") {
+    return {
+      source: createUrlMediaSource(mediabunnyModule, source.src),
+      mode: "url",
+    };
+  }
+
+  if (preferUrl) {
+    return {
+      source: createUrlMediaSource(mediabunnyModule, source.src),
+      mode: "url-direct",
+    };
+  }
+
+  try {
+    const blob = await fetchPlaybackBlob(source);
+    return {
+      source: createBlobMediaSource(mediabunnyModule, blob),
+      mode: "blob-fetched",
+    };
+  } catch (blobError) {
+    return {
+      source: createUrlMediaSource(mediabunnyModule, source.src),
+      mode: "url-fallback",
+      warning: blobError?.message || "blob fetch failed",
+    };
+  }
 }
 
 async function extractFrameThumbnailWithMediaBunny(source) {
   const mediabunny = await loadMediaBunnyModule();
+  const sourceDescriptor = await createMediaBunnySource(mediabunny, source, { mode: "thumbnail" });
   const input = new mediabunny.Input({
     formats: mediabunny.ALL_FORMATS,
-    source: getMediaBunnySource(mediabunny, source),
+    source: sourceDescriptor.source,
   });
 
   try {
@@ -905,6 +1021,94 @@ function updateLibrarySourceBadge(label, warn = false) {
   refs.librarySourceBadge.classList.toggle("warn", Boolean(warn));
 }
 
+function resolveSourceHref(src) {
+  try {
+    return new URL(src, window.location.href).href;
+  } catch {
+    return src;
+  }
+}
+
+function getSourceCacheKey(source) {
+  if (!source?.src) {
+    return "";
+  }
+  return resolveSourceHref(source.src);
+}
+
+function getPlaybackBlobCacheBytes() {
+  let total = 0;
+  for (const entry of playbackBlobCache.values()) {
+    total += entry.sizeBytes;
+  }
+  return total;
+}
+
+function prunePlaybackBlobCache(maxBytes = PLAYBACK_BLOB_CACHE_MAX_BYTES) {
+  let totalBytes = getPlaybackBlobCacheBytes();
+  if (totalBytes <= maxBytes) {
+    return;
+  }
+
+  const sorted = [...playbackBlobCache.entries()].sort((a, b) => a[1].lastUsedAt - b[1].lastUsedAt);
+  for (const [key, entry] of sorted) {
+    playbackBlobCache.delete(key);
+    totalBytes -= entry.sizeBytes;
+    if (totalBytes <= maxBytes) {
+      break;
+    }
+  }
+}
+
+async function fetchPlaybackBlob(source) {
+  if (source.file instanceof Blob) {
+    return source.file;
+  }
+
+  const cacheKey = getSourceCacheKey(source);
+  if (!cacheKey) {
+    throw new Error("Missing playback source path");
+  }
+
+  const cached = playbackBlobCache.get(cacheKey);
+  if (cached) {
+    cached.lastUsedAt = Date.now();
+    return cached.blob;
+  }
+
+  const inflight = playbackBlobInFlight.get(cacheKey);
+  if (inflight) {
+    return inflight;
+  }
+
+  const request = (async () => {
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), PLAYBACK_BLOB_FETCH_TIMEOUT_MS);
+    try {
+      const response = await fetch(source.src, {
+        cache: "force-cache",
+        signal: controller.signal,
+      });
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+      const blob = await response.blob();
+      const sizeBytes = Number(blob.size) || 0;
+      if (sizeBytes > 0 && sizeBytes <= PLAYBACK_BLOB_CACHE_MAX_BYTES) {
+        playbackBlobCache.set(cacheKey, { blob, sizeBytes, lastUsedAt: Date.now() });
+        prunePlaybackBlobCache();
+      }
+      return blob;
+    } finally {
+      window.clearTimeout(timeout);
+      playbackBlobInFlight.delete(cacheKey);
+    }
+  })();
+
+  playbackBlobInFlight.set(cacheKey, request);
+  return request;
+}
+
 function updatePlaybackEngineBadge(label, warn = false) {
   if (!refs.engineBadge) {
     return;
@@ -912,38 +1116,6 @@ function updatePlaybackEngineBadge(label, warn = false) {
   state.playbackEngineLabel = label;
   refs.engineBadge.textContent = `Engine: ${label}`;
   refs.engineBadge.classList.toggle("warn", Boolean(warn));
-}
-
-async function detectPlaybackEngineForSource(source) {
-  const cacheKey = `${source?.type || ""}|${source?.src || ""}`;
-  if (mediaBunnyDecodeCache.has(cacheKey)) {
-    return mediaBunnyDecodeCache.get(cacheKey);
-  }
-
-  try {
-    const mediabunny = await loadMediaBunnyModule();
-    const input = new mediabunny.Input({
-      formats: mediabunny.ALL_FORMATS,
-      source: getMediaBunnySource(mediabunny, source),
-    });
-
-    try {
-      const videoTrack = await input.getPrimaryVideoTrack();
-      const audioTrack = await input.getPrimaryAudioTrack();
-      const videoOk = videoTrack ? await videoTrack.canDecode() : false;
-      const audioOk = audioTrack ? await audioTrack.canDecode() : true;
-      const label = videoOk && audioOk ? "MediaBunny active (native output)" : "Native fallback";
-      mediaBunnyDecodeCache.set(cacheKey, label);
-      return label;
-    } finally {
-      if (typeof input.dispose === "function") {
-        input.dispose();
-      }
-    }
-  } catch {
-    mediaBunnyDecodeCache.set(cacheKey, "Native fallback");
-    return "Native fallback";
-  }
 }
 
 function cleanupLocalObjectUrls() {
@@ -1209,9 +1381,10 @@ async function probeVideoMetadataWithMediaBunny(source) {
   }
 
   const mediabunny = await loadMediaBunnyModule();
+  const sourceDescriptor = await createMediaBunnySource(mediabunny, source, { mode: "thumbnail" });
   const input = new mediabunny.Input({
     formats: mediabunny.ALL_FORMATS,
-    source: getMediaBunnySource(mediabunny, source),
+    source: sourceDescriptor.source,
   });
 
   try {
@@ -1339,6 +1512,451 @@ function probeVideoMetadataNative(sourcePath) {
   });
 }
 
+async function teardownPlaybackEngine() {
+  mbEngine.stopToken += 1;
+  mbEngine.isPlaying = false;
+  playerState.paused = true;
+  clearScheduledAudioNodes();
+  if (scrubPreviewTimer) {
+    window.clearTimeout(scrubPreviewTimer);
+    scrubPreviewTimer = 0;
+  }
+  scrubPreviewPendingTime = -1;
+  state.isScrubbing = false;
+  state.scrubResumeAfterSeek = false;
+  state.scrubPointerId = null;
+
+  if (mbEngine.audioSchedulerId) {
+    window.clearTimeout(mbEngine.audioSchedulerId);
+    mbEngine.audioSchedulerId = 0;
+  }
+
+  if (mbEngine.renderLoopHandle) {
+    cancelAnimationFrame(mbEngine.renderLoopHandle);
+    mbEngine.renderLoopHandle = 0;
+  }
+
+  if (mbEngine.input && typeof mbEngine.input.dispose === "function") {
+    mbEngine.input.dispose();
+  }
+
+  mbEngine.source = null;
+  mbEngine.input = null;
+  mbEngine.videoTrack = null;
+  mbEngine.audioTrack = null;
+  mbEngine.canvasSink = null;
+  mbEngine.audioSink = null;
+  mbEngine.isReady = false;
+  mbEngine.audioScheduledUntil = 0;
+  mbEngine.sourceMode = "";
+  mbEngine.audioClockStartCtxTime = 0;
+  mbEngine.audioClockStartMediaTime = 0;
+}
+
+function clearScheduledAudioNodes() {
+  for (const node of mbEngine.audioNodes) {
+    try {
+      node.stop();
+    } catch {
+      // ignore nodes that already ended
+    }
+    try {
+      node.disconnect();
+    } catch {
+      // ignore disconnect failures
+    }
+  }
+  mbEngine.audioNodes = [];
+}
+
+async function initAudioContextIfNeeded() {
+  if (!mbEngine.audioContext) {
+    const audioContext = new AudioContext();
+    const gainNode = audioContext.createGain();
+    gainNode.connect(audioContext.destination);
+    mbEngine.audioContext = audioContext;
+    mbEngine.gainNode = gainNode;
+  }
+
+  if (mbEngine.audioContext.state === "suspended") {
+    await mbEngine.audioContext.resume();
+  }
+
+  if (mbEngine.gainNode) {
+    mbEngine.gainNode.gain.value = playerState.muted ? 0 : playerState.volume;
+  }
+}
+
+async function readTrackResolution(videoTrack) {
+  const candidates = [
+    typeof videoTrack.getDisplayWidth === "function" && typeof videoTrack.getDisplayHeight === "function"
+      ? [await videoTrack.getDisplayWidth(), await videoTrack.getDisplayHeight()]
+      : null,
+    typeof videoTrack.getWidth === "function" && typeof videoTrack.getHeight === "function"
+      ? [await videoTrack.getWidth(), await videoTrack.getHeight()]
+      : null,
+  ];
+
+  for (const entry of candidates) {
+    if (!entry) {
+      continue;
+    }
+    const width = Number(entry[0]) || 0;
+    const height = Number(entry[1]) || 0;
+    if (width > 0 && height > 0) {
+      return { width, height };
+    }
+  }
+
+  return { width: 0, height: 0 };
+}
+
+function updateVideoStageAspect(width, height) {
+  const w = Number(width) || 0;
+  const h = Number(height) || 0;
+  if (w > 0 && h > 0) {
+    refs.videoStage.style.setProperty("--video-aspect", `${w} / ${h}`);
+    return;
+  }
+  refs.videoStage.style.setProperty("--video-aspect", "16 / 9");
+}
+
+async function prepareMediaBunnyPlayback(source, startTimeSeconds = 0) {
+  await teardownPlaybackEngine();
+  const mediabunny = await loadMediaBunnyModule();
+  const attemptModes = source.file instanceof Blob ? [false] : [true, false];
+  let lastError = null;
+
+  for (const preferUrl of attemptModes) {
+    const sourceDescriptor = await createMediaBunnySource(mediabunny, source, {
+      mode: "playback",
+      preferUrl,
+    });
+    const input = new mediabunny.Input({
+      formats: mediabunny.ALL_FORMATS,
+      source: sourceDescriptor.source,
+    });
+
+    try {
+      if (typeof input.canRead === "function") {
+        const readable = await input.canRead();
+        if (!readable) {
+          throw new Error("Input cannot be read by current source mode");
+        }
+      }
+
+      const videoTrack = await input.getPrimaryVideoTrack();
+      if (!videoTrack) {
+        throw new Error("No decodable video track found");
+      }
+
+      const videoDecodable = await videoTrack.canDecode();
+      if (!videoDecodable) {
+        throw new Error("Video track cannot be decoded by MediaBunny");
+      }
+
+      const audioTrack = await input.getPrimaryAudioTrack();
+      const audioDecodable = audioTrack ? await audioTrack.canDecode() : false;
+      const canvasWidth = Math.max(320, Math.round(refs.videoStage.clientWidth || 1280));
+      const canvasSink = new mediabunny.CanvasSink(videoTrack, {
+        width: canvasWidth,
+        fit: "contain",
+        poolSize: 2,
+      });
+      const audioSink = audioTrack && audioDecodable ? new mediabunny.AudioBufferSink(audioTrack) : null;
+
+      let duration = 0;
+      if (typeof input.getDurationFromMetadata === "function") {
+        duration = Number(await input.getDurationFromMetadata().catch(() => null)) || 0;
+      }
+      if (!(duration > 0) && typeof input.computeDuration === "function") {
+        duration = Number(await input.computeDuration().catch(() => 0)) || 0;
+      }
+
+      mbEngine.source = source;
+      mbEngine.input = input;
+      mbEngine.videoTrack = videoTrack;
+      mbEngine.audioTrack = audioTrack;
+      mbEngine.canvasSink = canvasSink;
+      mbEngine.audioSink = audioSink;
+      mbEngine.isReady = true;
+      mbEngine.sourceMode = sourceDescriptor.mode;
+
+      playerState.src = source.src;
+      playerState.duration = Math.max(0, duration);
+      playerState.currentTime = clamp(startTimeSeconds, 0, playerState.duration || startTimeSeconds || 0);
+      playerState.paused = true;
+
+      if (audioSink) {
+        await initAudioContextIfNeeded();
+      }
+
+      const resolution = await readTrackResolution(videoTrack);
+      updateVideoStageAspect(resolution.width, resolution.height);
+      if (!resolution.width || !resolution.height) {
+        await renderFrameAtTimestamp(playerState.currentTime);
+      }
+
+      const sourceModeLabel =
+        sourceDescriptor.mode === "blob-fetched"
+          ? "BlobSource"
+          : sourceDescriptor.mode === "blob-local"
+            ? "BlobSource(local)"
+            : sourceDescriptor.mode === "url-direct"
+              ? "UrlSource (fast)"
+              : "UrlSource";
+      updatePlaybackEngineBadge(
+        `${audioSink ? "MediaBunny full playback" : "MediaBunny video-only"} (${sourceModeLabel})`,
+        !audioSink && Boolean(audioTrack)
+      );
+      if (sourceDescriptor.warning) {
+        console.warn("MediaBunny playback source fallback:", sourceDescriptor.warning);
+      }
+
+      if (sourceDescriptor.mode === "url-direct" && !(source.file instanceof Blob)) {
+        window.setTimeout(() => {
+          fetchPlaybackBlob(source).catch(() => {
+            // warmup cache is opportunistic
+          });
+        }, PLAYBACK_BLOB_WARMUP_DELAY_MS);
+      }
+      return;
+    } catch (error) {
+      lastError = error;
+      if (typeof input.dispose === "function") {
+        input.dispose();
+      }
+      if (!preferUrl) {
+        throw error;
+      }
+      continue;
+    }
+  }
+
+  throw lastError || new Error("MediaBunny playback initialization failed");
+}
+
+function getCurrentPlaybackTime() {
+  if (!mbEngine.isPlaying) {
+    return playerState.currentTime;
+  }
+  if (mbEngine.audioSink && mbEngine.audioContext && mbEngine.audioClockStartCtxTime > 0) {
+    const elapsedAudio = Math.max(0, mbEngine.audioContext.currentTime - mbEngine.audioClockStartCtxTime);
+    return mbEngine.audioClockStartMediaTime + elapsedAudio * Math.max(0.01, playerState.playbackRate);
+  }
+  const elapsedSeconds = (performance.now() - mbEngine.playStartPerfMs) / 1000;
+  return playerState.playbackRate > 0
+    ? mbEngine.playStartMediaTime + elapsedSeconds * playerState.playbackRate
+    : mbEngine.playStartMediaTime;
+}
+
+function syncPlaybackUi() {
+  scheduleSeekUpdate();
+  onPlayStateChange();
+}
+
+function drawToRenderCanvas(wrappedCanvas) {
+  if (!wrappedCanvas?.canvas) {
+    return;
+  }
+
+  const renderTarget = refs.videoCanvas;
+  const sourceCanvas = wrappedCanvas.canvas;
+  const width = Number(sourceCanvas.width) || Number(sourceCanvas.videoWidth) || 0;
+  const height = Number(sourceCanvas.height) || Number(sourceCanvas.videoHeight) || 0;
+
+  if (width > 0 && height > 0 && (renderTarget.width !== width || renderTarget.height !== height)) {
+    renderTarget.width = width;
+    renderTarget.height = height;
+  }
+  updateVideoStageAspect(width, height);
+
+  const ctx = renderTarget.getContext("2d");
+  if (!ctx || !width || !height) {
+    return;
+  }
+  ctx.drawImage(sourceCanvas, 0, 0, width, height);
+}
+
+async function renderFrameAtTimestamp(timestamp) {
+  if (!mbEngine.canvasSink) {
+    return;
+  }
+  const wrappedCanvas = await mbEngine.canvasSink.getCanvas(Math.max(0, timestamp));
+  if (wrappedCanvas) {
+    drawToRenderCanvas(wrappedCanvas);
+  }
+}
+
+async function startPlaybackEngine() {
+  if (!mbEngine.isReady || mbEngine.isPlaying) {
+    return;
+  }
+
+  if (mbEngine.audioSink) {
+    await initAudioContextIfNeeded();
+  }
+
+  mbEngine.stopToken += 1;
+  const token = mbEngine.stopToken;
+  mbEngine.isPlaying = true;
+  playerState.paused = false;
+  mbEngine.playStartMediaTime = playerState.currentTime;
+  mbEngine.playStartPerfMs = performance.now();
+  mbEngine.audioScheduledUntil = playerState.currentTime;
+  mbEngine.audioClockStartMediaTime = playerState.currentTime;
+  mbEngine.audioClockStartCtxTime = mbEngine.audioContext ? mbEngine.audioContext.currentTime + 0.08 : 0;
+
+  startRenderLoop(token);
+  startAudioScheduler(token);
+  syncPlaybackUi();
+}
+
+function pausePlaybackEngine() {
+  if (!mbEngine.isReady) {
+    return;
+  }
+
+  if (!mbEngine.isPlaying) {
+    playerState.paused = true;
+    syncPlaybackUi();
+    return;
+  }
+
+  playerState.currentTime = clamp(getCurrentPlaybackTime(), 0, playerState.duration || Infinity);
+  mbEngine.isPlaying = false;
+  playerState.paused = true;
+  mbEngine.stopToken += 1;
+
+  if (mbEngine.audioSchedulerId) {
+    window.clearTimeout(mbEngine.audioSchedulerId);
+    mbEngine.audioSchedulerId = 0;
+  }
+  if (mbEngine.renderLoopHandle) {
+    cancelAnimationFrame(mbEngine.renderLoopHandle);
+    mbEngine.renderLoopHandle = 0;
+  }
+  clearScheduledAudioNodes();
+  syncPlaybackUi();
+}
+
+function startRenderLoop(token) {
+  const frame = async () => {
+    if (!mbEngine.isPlaying || token !== mbEngine.stopToken) {
+      return;
+    }
+
+    const current = clamp(getCurrentPlaybackTime(), 0, playerState.duration || Infinity);
+    if (playerState.duration > 0 && current >= playerState.duration) {
+      playerState.currentTime = playerState.duration;
+      handlePlaybackEnded();
+      return;
+    }
+
+    playerState.currentTime = current;
+    try {
+      await renderFrameAtTimestamp(current);
+    } catch {
+      // ignore transient render errors
+    }
+    scheduleSeekUpdate();
+    mbEngine.renderLoopHandle = requestAnimationFrame(() => {
+      frame().catch(console.warn);
+    });
+  };
+
+  frame().catch(console.warn);
+}
+
+function startAudioScheduler(token) {
+  if (!mbEngine.audioSink || !mbEngine.audioContext || !mbEngine.gainNode) {
+    return;
+  }
+
+  const tick = () => {
+    if (!mbEngine.isPlaying || token !== mbEngine.stopToken) {
+      return;
+    }
+
+    scheduleAudioAhead(token).catch(console.warn);
+    mbEngine.audioSchedulerId = window.setTimeout(tick, 180);
+  };
+
+  tick();
+}
+
+async function scheduleAudioAhead(token) {
+  if (!mbEngine.audioSink || !mbEngine.audioContext || !mbEngine.gainNode || !mbEngine.isPlaying) {
+    return;
+  }
+
+  const horizonSeconds = 6;
+  const rate = Math.max(0.01, playerState.playbackRate);
+  const currentMedia = clamp(getCurrentPlaybackTime(), 0, playerState.duration || Infinity);
+  const scheduleStart = Math.max(currentMedia, mbEngine.audioScheduledUntil);
+  const scheduleEnd = Math.min(
+    playerState.duration || currentMedia + horizonSeconds,
+    currentMedia + horizonSeconds
+  );
+
+  if (scheduleEnd <= scheduleStart + 0.001) {
+    return;
+  }
+
+  for await (const wrapped of mbEngine.audioSink.buffers(scheduleStart, scheduleEnd)) {
+    if (!mbEngine.isPlaying || token !== mbEngine.stopToken) {
+      break;
+    }
+    if (!wrapped?.buffer) {
+      continue;
+    }
+
+    const sourceNode = mbEngine.audioContext.createBufferSource();
+    sourceNode.buffer = wrapped.buffer;
+    sourceNode.playbackRate.value = playerState.playbackRate;
+    sourceNode.connect(mbEngine.gainNode);
+
+    const when = mbEngine.audioClockStartCtxTime + (wrapped.timestamp - mbEngine.audioClockStartMediaTime) / rate;
+    const now = mbEngine.audioContext.currentTime;
+    if (when + wrapped.duration < now - 0.02) {
+      continue;
+    }
+    sourceNode.start(Math.max(now + 0.005, when));
+    sourceNode.onended = () => {
+      mbEngine.audioNodes = mbEngine.audioNodes.filter((node) => node !== sourceNode);
+    };
+    mbEngine.audioNodes.push(sourceNode);
+  }
+
+  mbEngine.audioScheduledUntil = scheduleEnd;
+}
+
+async function seekPlaybackEngine(targetTimeSeconds, options = {}) {
+  const target = clamp(targetTimeSeconds, 0, playerState.duration || targetTimeSeconds || 0);
+  const shouldResume = typeof options.resume === "boolean" ? options.resume : mbEngine.isPlaying;
+  pausePlaybackEngine();
+  if (scrubPreviewTimer) {
+    window.clearTimeout(scrubPreviewTimer);
+    scrubPreviewTimer = 0;
+  }
+  scrubPreviewPendingTime = -1;
+  playerState.currentTime = target;
+  await renderFrameAtTimestamp(target);
+  scheduleSeekUpdate();
+  if (shouldResume) {
+    await startPlaybackEngine();
+  } else {
+    syncPlaybackUi();
+  }
+}
+
+function handlePlaybackEnded() {
+  pausePlaybackEngine();
+  playerState.currentTime = playerState.duration || playerState.currentTime;
+  scheduleSeekUpdate();
+  onVideoEnded();
+}
+
 async function loadVideoAtIndex(index, options = {}) {
   if (index < 0 || index >= state.videos.length) {
     return;
@@ -1353,36 +1971,39 @@ async function loadVideoAtIndex(index, options = {}) {
   state.currentVideoIndex = index;
   refs.nowPlayingTitle.textContent = videoMeta.title;
   refs.nowPlayingStats.textContent = buildNowPlayingStats(videoMeta);
-  updatePlaybackEngineBadge("Checking...");
-
-  refs.video.pause();
-  refs.video.src = source.src;
-  refs.video.type = source.type || "";
-  refs.video.load();
+  updatePlaybackEngineBadge("Loading...");
 
   resetZoom();
   renderLibrary();
 
   const resumeSeconds = !options.resetPosition ? Number(state.resumeMap[videoMeta.id] || 0) : 0;
-  if (resumeSeconds > 2) {
-    refs.video.currentTime = resumeSeconds;
+
+  try {
+    await prepareMediaBunnyPlayback(source, resumeSeconds > 2 ? resumeSeconds : 0);
+  } catch (error) {
+    console.error("MediaBunny playback initialization failed", error);
+    updatePlaybackEngineBadge("MediaBunny load failed", true);
+    refs.nowPlayingStats.textContent = `${buildNowPlayingStats(videoMeta)} | MediaBunny init failed`;
+    return;
   }
 
   updateSupportBadge(source.type);
-  const selectedIndex = index;
-  detectPlaybackEngineForSource(source).then((label) => {
-    if (state.currentVideoIndex !== selectedIndex) {
-      return;
-    }
-    updatePlaybackEngineBadge(label, label === "Native fallback");
-  });
+  if (playerState.duration > 0 && !videoMeta.duration) {
+    videoMeta.duration = playerState.duration;
+  }
+  refs.totalTimeLabel.textContent = formatDuration(playerState.duration || 0);
+  refs.currentTimeLabel.textContent = formatDuration(playerState.currentTime || 0);
 
   if (options.autoplay) {
     try {
-      await refs.video.play();
+      await startPlaybackEngine();
     } catch (error) {
       console.warn("Autoplay blocked", error);
     }
+  } else {
+    playerState.paused = true;
+    await renderFrameAtTimestamp(playerState.currentTime || 0);
+    syncPlaybackUi();
   }
 
   saveCurrentVideoPreference(videoMeta.id);
@@ -1428,8 +2049,8 @@ function updateSupportBadge(mimeType) {
       type: "file",
       video: {
         contentType: mimeType,
-        width: refs.video.videoWidth || 1920,
-        height: refs.video.videoHeight || 1080,
+        width: refs.videoCanvas.width || 1920,
+        height: refs.videoCanvas.height || 1080,
         bitrate: 5_000_000,
         framerate: 30,
       },
@@ -1445,33 +2066,25 @@ function updateSupportBadge(mimeType) {
 }
 
 function togglePlayback() {
-  if (!refs.video.src) {
+  if (!mbEngine.isReady) {
     return;
   }
-  if (refs.video.paused) {
-    refs.video.play().catch(console.warn);
+  if (playerState.paused) {
+    startPlaybackEngine().catch(console.warn);
   } else {
-    refs.video.pause();
+    pausePlaybackEngine();
   }
 }
 
 function onPlayStateChange() {
-  const paused = refs.video.paused;
-  refs.playPauseBtn.textContent = paused ? "PLAY" : "PAUSE";
+  const paused = playerState.paused;
+  refs.playPauseBtn.textContent = paused ? "Play" : "Pause";
+  refs.playPauseBtn.setAttribute("data-state", paused ? "paused" : "playing");
   refs.bigPlayBtn.classList.toggle("hidden", !paused);
 }
 
 function onLoadedMetadata() {
-  if (!Number.isFinite(refs.video.duration)) {
-    return;
-  }
-  refs.totalTimeLabel.textContent = formatDuration(refs.video.duration);
-  const currentVideo = state.videos[state.currentVideoIndex];
-  if (currentVideo) {
-    currentVideo.duration = refs.video.duration;
-    refs.nowPlayingStats.textContent = buildNowPlayingStats(currentVideo);
-    renderLibrary();
-  }
+  // Not used in MediaBunny playback mode.
 }
 
 function scheduleSeekUpdate() {
@@ -1480,11 +2093,17 @@ function scheduleSeekUpdate() {
   }
   seekRAF = requestAnimationFrame(() => {
     seekRAF = 0;
-    const duration = refs.video.duration || 0;
-    const current = refs.video.currentTime || 0;
-    const ratio = duration > 0 ? current / duration : 0;
-    refs.seekSlider.value = String(Math.round(ratio * 1000));
-    refs.currentTimeLabel.textContent = formatDuration(current);
+    const duration = playerState.duration || 0;
+    const current = clamp(getCurrentPlaybackTime(), 0, duration || Infinity);
+    if (!state.isScrubbing) {
+      playerState.currentTime = current;
+      const ratio = duration > 0 ? current / duration : 0;
+      refs.seekSlider.value = String(Math.round(ratio * 1000));
+      refs.currentTimeLabel.textContent = formatDuration(current);
+    } else {
+      refs.currentTimeLabel.textContent = formatDuration(playerState.currentTime || 0);
+    }
+    refs.totalTimeLabel.textContent = formatDuration(duration);
 
     const currentVideo = state.videos[state.currentVideoIndex];
     if (currentVideo) {
@@ -1494,14 +2113,98 @@ function scheduleSeekUpdate() {
 }
 
 function onSeekInput() {
-  if (!Number.isFinite(refs.video.duration)) {
+  if (!(playerState.duration > 0) || !mbEngine.isReady) {
     return;
   }
   const ratio = Number(refs.seekSlider.value) / 1000;
-  refs.video.currentTime = ratio * refs.video.duration;
+  const target = ratio * playerState.duration;
+  state.scrubTargetTime = clamp(target, 0, playerState.duration || target || 0);
+
+  if (state.isScrubbing) {
+    playerState.currentTime = state.scrubTargetTime;
+    refs.currentTimeLabel.textContent = formatDuration(state.scrubTargetTime);
+    queueScrubPreview(state.scrubTargetTime);
+    return;
+  }
+
+  seekPlaybackEngine(state.scrubTargetTime).catch(console.warn);
+}
+
+function onSeekPointerDown(event) {
+  if (!(playerState.duration > 0) || !mbEngine.isReady) {
+    return;
+  }
+  state.isScrubbing = true;
+  state.scrubResumeAfterSeek = mbEngine.isPlaying;
+  state.scrubPointerId = event.pointerId;
+  try {
+    refs.seekSlider.setPointerCapture(event.pointerId);
+  } catch {
+    // ignore capture errors
+  }
+  pausePlaybackEngine();
+}
+
+function onSeekPointerUp(event) {
+  if (!state.isScrubbing) {
+    return;
+  }
+  if (state.scrubPointerId !== null && event.pointerId !== state.scrubPointerId) {
+    return;
+  }
+  try {
+    if (refs.seekSlider.hasPointerCapture(event.pointerId)) {
+      refs.seekSlider.releasePointerCapture(event.pointerId);
+    }
+  } catch {
+    // ignore capture errors
+  }
+  onSeekCommit();
+}
+
+function onSeekCommit() {
+  if (!mbEngine.isReady) {
+    return;
+  }
+  const ratio = Number(refs.seekSlider.value) / 1000;
+  const target = clamp(ratio * playerState.duration, 0, playerState.duration || 0);
+  const shouldResume = state.isScrubbing ? state.scrubResumeAfterSeek : mbEngine.isPlaying;
+  state.isScrubbing = false;
+  state.scrubResumeAfterSeek = false;
+  state.scrubPointerId = null;
+  seekPlaybackEngine(target, { resume: shouldResume }).catch(console.warn);
+}
+
+function queueScrubPreview(targetTime) {
+  scrubPreviewPendingTime = targetTime;
+  if (scrubPreviewTimer) {
+    return;
+  }
+
+  scrubPreviewTimer = window.setTimeout(async () => {
+    scrubPreviewTimer = 0;
+    const snapshot = scrubPreviewPendingTime;
+    if (!mbEngine.isReady || !state.isScrubbing || !(snapshot >= 0)) {
+      return;
+    }
+
+    try {
+      await renderFrameAtTimestamp(snapshot);
+    } catch {
+      // ignore transient preview errors
+    }
+
+    if (state.isScrubbing && Math.abs(scrubPreviewPendingTime - snapshot) > 0.001) {
+      queueScrubPreview(scrubPreviewPendingTime);
+    }
+  }, 45);
 }
 
 function onVideoEnded() {
+  if (state.repeatCurrent) {
+    seekPlaybackEngine(0, { resume: true }).catch(console.warn);
+    return;
+  }
   if (!state.autoplayNext) {
     return;
   }
@@ -1541,29 +2244,34 @@ function adjacentFilteredIndex(delta) {
 }
 
 function toggleMute() {
-  refs.video.muted = !refs.video.muted;
+  playerState.muted = !playerState.muted;
   onVolumeChange();
 }
 
 function onVolumeInput() {
-  refs.video.volume = clamp(Number(refs.volumeSlider.value), 0, 1);
-  refs.video.muted = refs.video.volume === 0;
+  playerState.volume = clamp(Number(refs.volumeSlider.value), 0, 1);
+  playerState.muted = playerState.volume === 0;
   onVolumeChange();
 }
 
 function onVolumeChange() {
-  const volume = refs.video.muted ? 0 : refs.video.volume;
+  const volume = playerState.muted ? 0 : playerState.volume;
   refs.volumeSlider.value = String(volume);
-  refs.muteBtn.textContent = volume === 0 ? "MUTE" : volume < 0.5 ? "VOL-" : "VOL+";
+  refs.muteBtn.textContent = "Volume";
+  refs.muteBtn.setAttribute("data-level", volume === 0 ? "mute" : volume < 0.5 ? "low" : "high");
+  if (mbEngine.gainNode) {
+    mbEngine.gainNode.gain.value = volume;
+  }
 
-  localStorage.setItem("vp_volume", String(refs.video.volume));
-  localStorage.setItem("vp_muted", refs.video.muted ? "1" : "0");
+  localStorage.setItem("vp_volume", String(playerState.volume));
+  localStorage.setItem("vp_muted", playerState.muted ? "1" : "0");
 }
 
 function toggleTheaterMode() {
   state.theaterMode = !state.theaterMode;
   refs.appShell.classList.toggle("theater", state.theaterMode);
   localStorage.setItem("vp_theater_mode", state.theaterMode ? "1" : "0");
+  onViewportChange();
 }
 
 async function toggleFullscreen() {
@@ -1575,27 +2283,77 @@ async function toggleFullscreen() {
 }
 
 function onFullscreenChange() {
-  refs.fullscreenBtn.textContent = document.fullscreenElement ? "EXIT" : "FULL";
+  refs.fullscreenBtn.textContent = document.fullscreenElement ? "Exit fullscreen" : "Fullscreen";
+  refs.fullscreenBtn.setAttribute("data-state", document.fullscreenElement ? "exit" : "enter");
+  onViewportChange();
 }
 
 function toggleSettingsPanel() {
   state.settingsOpen = !state.settingsOpen;
   refs.settingsPanel.hidden = !state.settingsOpen;
+  refs.settingsPanel.style.display = state.settingsOpen ? "grid" : "none";
+  if (state.settingsOpen) {
+    positionSettingsPanel();
+  }
   refs.settingsBtn.setAttribute("aria-expanded", state.settingsOpen ? "true" : "false");
+  refs.settingsBtn.setAttribute("data-state", state.settingsOpen ? "open" : "closed");
 }
 
 function closeSettingsPanel() {
   state.settingsOpen = false;
   refs.settingsPanel.hidden = true;
+  refs.settingsPanel.style.display = "none";
   refs.settingsBtn.setAttribute("aria-expanded", "false");
+  refs.settingsBtn.setAttribute("data-state", "closed");
+}
+
+function onViewportChange() {
+  if (!state.settingsOpen) {
+    return;
+  }
+  positionSettingsPanel();
+}
+
+function positionSettingsPanel() {
+  const buttonRect = refs.settingsBtn.getBoundingClientRect();
+  const panel = refs.settingsPanel;
+  const viewportPadding = 10;
+  const anchorGap = 10;
+
+  panel.style.position = "fixed";
+  panel.style.left = "0px";
+  panel.style.top = "0px";
+  panel.style.visibility = "hidden";
+  panel.style.display = "grid";
+
+  const panelRect = panel.getBoundingClientRect();
+  let left = buttonRect.right - panelRect.width;
+  let top = buttonRect.top - panelRect.height - anchorGap;
+
+  if (top < viewportPadding) {
+    top = buttonRect.bottom + anchorGap;
+  }
+  if (left < viewportPadding) {
+    left = viewportPadding;
+  }
+  if (left + panelRect.width > window.innerWidth - viewportPadding) {
+    left = Math.max(viewportPadding, window.innerWidth - panelRect.width - viewportPadding);
+  }
+  if (top + panelRect.height > window.innerHeight - viewportPadding) {
+    top = Math.max(viewportPadding, window.innerHeight - panelRect.height - viewportPadding);
+  }
+
+  panel.style.left = `${Math.round(left)}px`;
+  panel.style.top = `${Math.round(top)}px`;
+  panel.style.visibility = "visible";
 }
 
 function onDocumentPointerDown(event) {
   if (!state.settingsOpen) {
     return;
   }
-  const target = event.target;
-  if (refs.settingsPanel.contains(target) || refs.settingsBtn.contains(target)) {
+  const path = typeof event.composedPath === "function" ? event.composedPath() : [];
+  if (path.includes(refs.settingsPanel) || path.includes(refs.settingsBtn)) {
     return;
   }
   closeSettingsPanel();
@@ -1603,18 +2361,22 @@ function onDocumentPointerDown(event) {
 
 function onSpeedChange() {
   const speed = Number(refs.speedSelect.value) || 1;
-  refs.video.playbackRate = speed;
+  playerState.playbackRate = speed;
   localStorage.setItem("vp_speed", String(speed));
-}
-
-function onFitChange() {
-  refs.video.style.objectFit = refs.fitSelect.value;
-  localStorage.setItem("vp_fit", refs.fitSelect.value);
+  if (mbEngine.isPlaying) {
+    const current = getCurrentPlaybackTime();
+    seekPlaybackEngine(current).catch(console.warn);
+  }
 }
 
 function onAutoplayToggle() {
   state.autoplayNext = refs.autoplayToggle.checked;
   localStorage.setItem("vp_autoplay_next", state.autoplayNext ? "1" : "0");
+}
+
+function onRepeatToggle() {
+  state.repeatCurrent = refs.repeatToggle.checked;
+  localStorage.setItem("vp_repeat_current", state.repeatCurrent ? "1" : "0");
 }
 
 function onZoomSliderInput() {
@@ -1715,7 +2477,7 @@ function onZoomWheel(event) {
 }
 
 function clampZoomOffsets() {
-  const rect = refs.video.getBoundingClientRect();
+  const rect = refs.videoCanvas.getBoundingClientRect();
   const maxX = ((state.zoomScale - 1) * rect.width) / 2;
   const maxY = ((state.zoomScale - 1) * rect.height) / 2;
   state.zoomX = clamp(state.zoomX, -maxX, maxX);
@@ -1723,19 +2485,8 @@ function clampZoomOffsets() {
 }
 
 async function toggleMiniPlayer() {
-  if (!document.pictureInPictureEnabled || refs.video.disablePictureInPicture) {
-    refs.nowPlayingStats.textContent += " | PiP not available";
-    return;
-  }
-
-  try {
-    if (document.pictureInPictureElement) {
-      await document.exitPictureInPicture();
-    } else {
-      await refs.video.requestPictureInPicture();
-    }
-  } catch (error) {
-    console.warn("PiP error", error);
+  if (!refs.nowPlayingStats.textContent.includes("PiP unavailable")) {
+    refs.nowPlayingStats.textContent += " | PiP unavailable in full MediaBunny canvas mode";
   }
 }
 
@@ -1770,12 +2521,14 @@ function onKeyDown(event) {
   }
 
   if (event.key === "ArrowRight") {
-    refs.video.currentTime = Math.min((refs.video.currentTime || 0) + 5, refs.video.duration || Infinity);
+    const next = Math.min(getCurrentPlaybackTime() + 5, playerState.duration || Infinity);
+    seekPlaybackEngine(next).catch(console.warn);
     return;
   }
 
   if (event.key === "ArrowLeft") {
-    refs.video.currentTime = Math.max((refs.video.currentTime || 0) - 5, 0);
+    const prev = Math.max(getCurrentPlaybackTime() - 5, 0);
+    seekPlaybackEngine(prev).catch(console.warn);
     return;
   }
 
@@ -1804,11 +2557,12 @@ function onVideoError() {
   if (!currentVideo) {
     return;
   }
-  refs.nowPlayingStats.textContent = `${buildNowPlayingStats(currentVideo)} | Playback failed in this browser`;
+  refs.nowPlayingStats.textContent = `${buildNowPlayingStats(currentVideo)} | Playback engine error`;
 }
 
 function maybePersistResume(videoId) {
-  if (!videoId || !Number.isFinite(refs.video.currentTime)) {
+  const currentTime = getCurrentPlaybackTime();
+  if (!videoId || !Number.isFinite(currentTime)) {
     return;
   }
 
@@ -1818,8 +2572,8 @@ function maybePersistResume(videoId) {
   }
   lastResumeWrite = now;
 
-  const current = refs.video.currentTime;
-  const duration = refs.video.duration || 0;
+  const current = currentTime;
+  const duration = playerState.duration || 0;
 
   if (duration > 0 && current > duration - 3) {
     state.resumeMap[videoId] = 0;

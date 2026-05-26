@@ -37,6 +37,7 @@ If PHP is not available, the app falls back to:
 - Normal mode: list beside player
 - Theater mode: list below player
 - Playback controls: play/pause, prev/next, seek, volume/mute, fullscreen
+- Playback engine: MediaBunny-driven canvas video + MediaBunny audio buffer playback
 - Settings: playback speed, fit mode, autoplay next, zoom
 - Zoom + pan inside video
 - Mini player (Picture-in-Picture where supported)
@@ -45,7 +46,7 @@ If PHP is not available, the app falls back to:
 - Automatic MediaBunny-first metadata hydration (duration/resolution/codec) with native fallback
 - Automatic thumbnail frame extraction for videos without poster images
 - Thumbnail caching in IndexedDB (faster subsequent page loads on same device/browser)
-- Engine badge showing `MediaBunny active (native output)` vs `Native fallback`
+- Engine badge showing active MediaBunny playback mode
 
 ## Folder structure
 
@@ -74,7 +75,7 @@ node tools/generate-manifest.mjs
 
 This is optional and no longer required for normal use.
 
-MediaBunny is wired into runtime thumbnail extraction and metadata probing, with native browser fallback when needed.
+MediaBunny is wired into runtime playback, thumbnail extraction, and metadata probing.
 
 ## Format guidance
 

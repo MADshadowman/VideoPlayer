@@ -35,9 +35,10 @@
         <section class="player-panel" id="playerPanel">
           <div class="video-stage" id="videoStage">
             <div class="zoom-layer" id="zoomLayer">
-              <video id="video" preload="metadata" playsinline></video>
+              <canvas id="videoCanvas"></canvas>
+              <video id="video" preload="metadata" playsinline hidden></video>
             </div>
-            <button id="bigPlayBtn" class="big-play" type="button" aria-label="Play or pause">â–¶</button>
+            <button id="bigPlayBtn" class="big-play" type="button" aria-label="Play or pause">PLAY</button>
             <div class="meta-ribbon" id="metaRibbon">
               <span id="nowPlayingTitle">No video selected</span>
               <span id="nowPlayingStats">-</span>
@@ -53,19 +54,19 @@
 
               <div class="controls-row">
                 <div class="controls-left">
-                  <button id="prevBtn" type="button" class="icon-btn" title="Previous">â®</button>
-                  <button id="playPauseBtn" type="button" class="icon-btn" title="Play/Pause">â–¶</button>
-                  <button id="nextBtn" type="button" class="icon-btn" title="Next">â­</button>
-                  <button id="muteBtn" type="button" class="icon-btn" title="Mute">ðŸ”Š</button>
+                  <button id="prevBtn" type="button" class="icon-btn" title="Previous">PREV</button>
+                  <button id="playPauseBtn" type="button" class="icon-btn" title="Play/Pause">PLAY</button>
+                  <button id="nextBtn" type="button" class="icon-btn" title="Next">NEXT</button>
+                  <button id="muteBtn" type="button" class="icon-btn" title="Mute">VOL+</button>
                   <input id="volumeSlider" type="range" min="0" max="1" value="1" step="0.01" aria-label="Volume" />
                 </div>
 
                 <div class="controls-right">
-                  <button id="zoomToggleBtn" type="button" class="icon-btn" title="Toggle Zoom">ðŸ”</button>
-                  <button id="miniPlayerBtn" type="button" class="icon-btn" title="Mini Player">ðŸ——</button>
-                  <button id="theaterBtn" type="button" class="icon-btn" title="Theater Mode">â—«</button>
-                  <button id="fullscreenBtn" type="button" class="icon-btn" title="Fullscreen">â›¶</button>
-                  <button id="settingsBtn" type="button" class="icon-btn" title="Settings">âš™</button>
+                  <button id="zoomToggleBtn" type="button" class="icon-btn" title="Toggle Zoom">ZOOM</button>
+                  <button id="miniPlayerBtn" type="button" class="icon-btn" title="Mini Player">PIP</button>
+                  <button id="theaterBtn" type="button" class="icon-btn" title="Theater Mode">THR</button>
+                  <button id="fullscreenBtn" type="button" class="icon-btn" title="Fullscreen">FULL</button>
+                  <button id="settingsBtn" type="button" class="icon-btn" title="Settings">SET</button>
                 </div>
               </div>
             </div>
@@ -88,16 +89,13 @@
               <label for="zoomSlider">Zoom level</label>
               <input id="zoomSlider" type="range" min="1" max="3" step="0.1" value="1" />
             </div>
-            <div class="setting-item">
-              <label for="fitSelect">Video fit</label>
-              <select id="fitSelect">
-                <option value="contain" selected>Contain</option>
-                <option value="cover">Cover</option>
-              </select>
-            </div>
             <div class="setting-item toggle-item">
               <label for="autoplayToggle">Autoplay next</label>
               <input id="autoplayToggle" type="checkbox" checked />
+            </div>
+            <div class="setting-item toggle-item">
+              <label for="repeatToggle">Repeat current</label>
+              <input id="repeatToggle" type="checkbox" />
             </div>
           </div>
         </section>
