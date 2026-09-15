@@ -1,0 +1,18 @@
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Local media and generated assets — don't commit your personal library
+videos/*
+!videos/videos.php
+!videos/video.php
+!videos/.gitkeep
+
+# Logs
+*.log
+npm-debug.log*
+
+# Editor
+.vscode/
+.idea/
+*.swp

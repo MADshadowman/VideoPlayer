@@ -3,16 +3,45 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>VideoPlayer</title>
+    <meta
+      name="description"
+      content="A modern, dependency-light personal video library that runs on any webspace. Native-first playback with MediaBunny-powered fallback, thumbnails and metadata."
+    />
+    <meta name="color-scheme" content="dark" />
+    <meta name="theme-color" content="#0f0f0f" />
+    <title>VideoPlayer — your personal video library</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Manrope:wght@400;500;600&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap"
       rel="stylesheet"
     />
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
+    <svg class="sprite" aria-hidden="true" focusable="false">
+      <defs>
+        <symbol id="i-play" viewBox="0 0 24 24"><path d="M8 5.5v13l11-6.5-11-6.5Z" /></symbol>
+        <symbol id="i-pause" viewBox="0 0 24 24"><path d="M7 5h3.4v14H7V5Zm6.6 0H17v14h-3.4V5Z" /></symbol>
+        <symbol id="i-prev" viewBox="0 0 24 24"><path d="M7 6h2.2v12H7V6Zm11.5 0v12l-9-6 9-6Z" /></symbol>
+        <symbol id="i-next" viewBox="0 0 24 24"><path d="M14.8 6H17v12h-2.2V6ZM5.5 6v12l9-6-9-6Z" /></symbol>
+        <symbol id="i-volume-high" viewBox="0 0 24 24"><path d="M4 9.5h3.5L12 5v14L7.5 14.5H4v-5Zm10.2-1.2a5.4 5.4 0 0 1 0 7.4l1.3 1.3a7.2 7.2 0 0 0 0-10l-1.3 1.3Zm2.4-2.5a8.9 8.9 0 0 1 0 12.4l1.3 1.3a10.7 10.7 0 0 0 0-15l-1.3 1.3Z" /></symbol>
+        <symbol id="i-volume-low" viewBox="0 0 24 24"><path d="M4 9.5h3.5L12 5v14L7.5 14.5H4v-5Zm10.2-1.2a5.4 5.4 0 0 1 0 7.4l1.3 1.3a7.2 7.2 0 0 0 0-10l-1.3 1.4Z" /></symbol>
+        <symbol id="i-volume-mute" viewBox="0 0 24 24"><path d="M4 9.5h3.5L12 5v14L7.5 14.5H4v-5Zm12.1-.6 1.3-1.3 2 2 2-2 1.3 1.3-2 2 2 2-1.3 1.3-2-2-2 2-1.3-1.3 2-2-2-2Z" /></symbol>
+        <symbol id="i-zoom" viewBox="0 0 24 24"><path d="M10.5 3a7.5 7.5 0 0 1 5.9 12.1l4.3 4.3-1.4 1.4-4.3-4.3A7.5 7.5 0 1 1 10.5 3Zm0 2a5.5 5.5 0 1 0 0 11 5.5 5.5 0 0 0 0-11Zm.9 2v2.6H14v1.8h-2.6V14h-1.8v-2.6H7V9.6h2.6V7h1.8Z" /></symbol>
+        <symbol id="i-pip" viewBox="0 0 24 24"><path d="M3 5h18v14H3V5Zm2 2v10h14V7H5Zm7 4h5.5v4.5H12V11Z" /></symbol>
+        <symbol id="i-theater" viewBox="0 0 24 24"><path d="M3 4.5h18v3.2H3V4.5Zm2.5 6.4h13v2.2h-13v-2.2ZM3 16.3h18v3.2H3v-3.2Z" /></symbol>
+        <symbol id="i-fullscreen" viewBox="0 0 24 24"><path d="M4 4h6v2H6v4H4V4Zm10 0h6v6h-2V6h-4V4ZM4 14h2v4h4v2H4v-6Zm14 0h2v6h-6v-2h4v-4Z" /></symbol>
+        <symbol id="i-fullscreen-exit" viewBox="0 0 24 24"><path d="M9 4h2v6H4V8h5V4Zm4 0h2v5h5v2h-7V4ZM4 14h7v6H9v-4H4v-2Zm9 0h7v2h-5v4h-2v-6Z" /></symbol>
+        <symbol id="i-settings" viewBox="0 0 24 24"><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58a.49.49 0 0 0 .12-.61l-1.92-3.32a.49.49 0 0 0-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54a.48.48 0 0 0-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96a.49.49 0 0 0-.59.22l-1.92 3.32c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.07.62-.07.92 0 .31.02.63.07.94l-2.03 1.58a.49.49 0 0 0-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32a.49.49 0 0 0-.12-.61l-2.01-1.58ZM12 15.6a3.6 3.6 0 1 1 0-7.2 3.6 3.6 0 0 1 0 7.2Z" /></symbol>
+        <symbol id="i-search" viewBox="0 0 24 24"><path d="M10.5 3a7.5 7.5 0 0 1 5.9 12.1l4.3 4.3-1.4 1.4-4.3-4.3A7.5 7.5 0 1 1 10.5 3Zm0 2a5.5 5.5 0 1 0 0 11 5.5 5.5 0 0 0 0-11Z" /></symbol>
+        <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 5h6l2 2h10v12H3V5Zm2 4v8h14V9H5Z" /></symbol>
+        <symbol id="i-reload" viewBox="0 0 24 24"><path d="M12 4a8 8 0 1 1-7.4 5h2.2A6 6 0 1 0 12 6v3L7.5 5.5 12 2v2Z" /></symbol>
+        <symbol id="i-help" viewBox="0 0 24 24"><path d="M12 2a10 10 0 1 1 0 20 10 10 0 0 1 0-20Zm0 2a8 8 0 1 0 0 16 8 8 0 0 0 0-16Zm0 12.5A1.25 1.25 0 1 1 10.75 18 1.25 1.25 0 0 1 12 16.5ZM12 6a4 4 0 0 1 2.6 7c-.7.6-1.1 1-1.1 1.5v.3h-2v-.4a3.3 3.3 0 0 1 1.5-2.5A2 2 0 1 0 10 10H8a4 4 0 0 1 4-4Z" /></symbol>
+        <symbol id="i-close" viewBox="0 0 24 24"><path d="m6.4 5 5.6 5.6L17.6 5 19 6.4 13.4 12 19 17.6 17.6 19 12 13.4 6.4 19 5 17.6 10.6 12 5 6.4 6.4 5Z" /></symbol>
+      </defs>
+    </svg>
+
     <div class="app-shell" id="appShell">
       <header class="topbar">
         <div class="brand-block">
@@ -20,25 +49,44 @@
           <h1>VideoPlayer</h1>
         </div>
         <div class="topbar-actions">
-          <span id="engineBadge" class="source-badge" title="Playback engine mode">Engine: Native</span>
-          <span id="librarySourceBadge" class="source-badge" title="Where the library was loaded from">Source: -</span>
           <label class="search-wrap" for="searchInput">
+            <svg class="search-icon" aria-hidden="true"><use href="#i-search" /></svg>
             <span class="sr-only">Search videos</span>
-            <input id="searchInput" type="search" placeholder="Search title, tag, codec..." autocomplete="off" />
+            <input
+              id="searchInput"
+              type="search"
+              placeholder="Search title, tag, codec..."
+              autocomplete="off"
+            />
           </label>
-          <button id="pickFolderBtn" class="ghost-btn" type="button">Open Folder</button>
-          <button id="reloadLibraryBtn" class="ghost-btn" type="button">Reload</button>
+          <button id="pickFolderBtn" class="ghost-btn" type="button" title="Open a local folder">
+            <svg aria-hidden="true"><use href="#i-folder" /></svg><span>Open Folder</span>
+          </button>
+          <button id="reloadLibraryBtn" class="ghost-btn" type="button" title="Reload the library">
+            <svg aria-hidden="true"><use href="#i-reload" /></svg><span>Reload</span>
+          </button>
+          <button
+            id="helpBtn"
+            class="ghost-btn icon-only"
+            type="button"
+            title="Keyboard shortcuts (?)"
+            aria-label="Keyboard shortcuts"
+          >
+            <svg aria-hidden="true"><use href="#i-help" /></svg>
+          </button>
         </div>
       </header>
 
       <main class="main-grid" id="mainGrid">
         <section class="player-panel" id="playerPanel">
-          <div class="video-stage" id="videoStage">
+          <div class="video-stage" id="videoStage" data-engine="native">
             <div class="zoom-layer" id="zoomLayer">
-              <canvas id="videoCanvas"></canvas>
-              <video id="video" preload="metadata" playsinline hidden></video>
+              <canvas id="videoCanvas" hidden></canvas>
+              <video id="video" preload="auto" playsinline></video>
             </div>
-            <button id="bigPlayBtn" class="big-play" type="button" aria-label="Play or pause">PLAY</button>
+            <button id="bigPlayBtn" class="big-play" type="button" aria-label="Play or pause">
+              <svg aria-hidden="true"><use href="#i-play" /></svg>
+            </button>
             <div class="meta-ribbon" id="metaRibbon">
               <span id="nowPlayingTitle">No video selected</span>
               <span id="nowPlayingStats">-</span>
@@ -54,19 +102,49 @@
 
               <div class="controls-row">
                 <div class="controls-left">
-                  <button id="prevBtn" type="button" class="icon-btn" title="Previous">PREV</button>
-                  <button id="playPauseBtn" type="button" class="icon-btn" title="Play/Pause">PLAY</button>
-                  <button id="nextBtn" type="button" class="icon-btn" title="Next">NEXT</button>
-                  <button id="muteBtn" type="button" class="icon-btn" title="Mute">VOL+</button>
+                  <button id="prevBtn" type="button" class="icon-btn" title="Previous (P)" aria-label="Previous video">
+                    <svg aria-hidden="true"><use href="#i-prev" /></svg>
+                  </button>
+                  <button id="playPauseBtn" type="button" class="icon-btn play-btn" title="Play/Pause (Space)" aria-label="Play or pause">
+                    <svg aria-hidden="true" class="icon-play"><use href="#i-play" /></svg>
+                    <svg aria-hidden="true" class="icon-pause"><use href="#i-pause" /></svg>
+                  </button>
+                  <button id="nextBtn" type="button" class="icon-btn" title="Next (N)" aria-label="Next video">
+                    <svg aria-hidden="true"><use href="#i-next" /></svg>
+                  </button>
+                  <button id="muteBtn" type="button" class="icon-btn" title="Mute (M)" aria-label="Mute or unmute">
+                    <svg aria-hidden="true" class="icon-vol-high"><use href="#i-volume-high" /></svg>
+                    <svg aria-hidden="true" class="icon-vol-low"><use href="#i-volume-low" /></svg>
+                    <svg aria-hidden="true" class="icon-vol-mute"><use href="#i-volume-mute" /></svg>
+                  </button>
                   <input id="volumeSlider" type="range" min="0" max="1" value="1" step="0.01" aria-label="Volume" />
                 </div>
 
                 <div class="controls-right">
-                  <button id="zoomToggleBtn" type="button" class="icon-btn" title="Toggle Zoom">ZOOM</button>
-                  <button id="miniPlayerBtn" type="button" class="icon-btn" title="Mini Player">PIP</button>
-                  <button id="theaterBtn" type="button" class="icon-btn" title="Theater Mode">THR</button>
-                  <button id="fullscreenBtn" type="button" class="icon-btn" title="Fullscreen">FULL</button>
-                  <button id="settingsBtn" type="button" class="icon-btn" title="Settings">SET</button>
+                  <button id="zoomToggleBtn" type="button" class="icon-btn" title="Toggle zoom + pan" aria-label="Toggle zoom">
+                    <svg aria-hidden="true"><use href="#i-zoom" /></svg>
+                  </button>
+                  <button id="miniPlayerBtn" type="button" class="icon-btn" title="Mini player (PiP)" aria-label="Mini player">
+                    <svg aria-hidden="true"><use href="#i-pip" /></svg>
+                  </button>
+                  <button id="theaterBtn" type="button" class="icon-btn" title="Theater mode (T)" aria-label="Theater mode">
+                    <svg aria-hidden="true"><use href="#i-theater" /></svg>
+                  </button>
+                  <button id="fullscreenBtn" type="button" class="icon-btn" title="Fullscreen (F)" aria-label="Fullscreen">
+                    <svg aria-hidden="true" class="icon-full"><use href="#i-fullscreen" /></svg>
+                    <svg aria-hidden="true" class="icon-full-exit"><use href="#i-fullscreen-exit" /></svg>
+                  </button>
+                  <button
+                    id="settingsBtn"
+                    type="button"
+                    class="icon-btn"
+                    title="Settings"
+                    aria-label="Settings"
+                    aria-haspopup="true"
+                    aria-expanded="false"
+                  >
+                    <svg aria-hidden="true"><use href="#i-settings" /></svg>
+                  </button>
                 </div>
               </div>
             </div>
@@ -110,6 +188,31 @@
       </main>
     </div>
 
+    <dialog id="helpDialog" class="help-dialog">
+      <div class="help-head">
+        <h2>Keyboard shortcuts</h2>
+        <button id="helpCloseBtn" class="icon-btn" type="button" aria-label="Close">
+          <svg aria-hidden="true"><use href="#i-close" /></svg>
+        </button>
+      </div>
+      <dl class="shortcut-list">
+        <div><dt><kbd>Space</kbd></dt><dd>Play / pause</dd></div>
+        <div><dt><kbd>←</kbd> <kbd>→</kbd></dt><dd>Seek 5 seconds</dd></div>
+        <div><dt><kbd>N</kbd> / <kbd>P</kbd></dt><dd>Next / previous video</dd></div>
+        <div><dt><kbd>F</kbd></dt><dd>Toggle fullscreen</dd></div>
+        <div><dt><kbd>T</kbd></dt><dd>Theater mode</dd></div>
+        <div><dt><kbd>M</kbd></dt><dd>Mute / unmute</dd></div>
+        <div><dt><kbd>/</kbd></dt><dd>Focus search</dd></div>
+        <div><dt><kbd>?</kbd></dt><dd>Show this dialog</dd></div>
+        <div><dt>Double-click</dt><dd>Fullscreen on the video</dd></div>
+      </dl>
+      <p class="help-note">
+        Videos play through the browser's native player for maximum speed and battery
+        life. Formats the browser can't handle (MKV, MOV...) automatically fall back to
+        the built-in canvas player.
+      </p>
+    </dialog>
+
     <template id="videoCardTemplate">
       <button class="video-card" type="button">
         <div class="thumb-wrap">
@@ -126,6 +229,7 @@
 
     <input id="folderInput" class="sr-only" type="file" webkitdirectory directory multiple />
 
-    <script type="module" src="./app.js"></script>
+    <script src="./vendor/mediabunny.min.cjs"></script>
+    <script src="./app.js"></script>
   </body>
 </html>
