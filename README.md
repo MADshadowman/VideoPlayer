@@ -4,6 +4,8 @@ A self-hosted personal video library with a modern, responsive dark UI — built
 with plain HTML/CSS/JS. **No build step, no npm install, no framework.** Drop it
 on any web host (PHP optional) and it plays your files.
 
+![VideoPlayer — main view](docs/screenshot.png)
+
 ## Highlights
 
 - **Hybrid playback engine (native-first):** MP4/WebM play through the browser's
