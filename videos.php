@@ -186,11 +186,22 @@ function find_poster_for_stem($posterDir, $stem, $posterExt)
         return '';
     }
 
+    $candidates = array((string) $stem);
+
+    // Backward compatibility: posters may also be stored by basename only.
     $base = pathinfo($stem, PATHINFO_BASENAME);
-    foreach ($posterExt as $ext) {
-        $candidate = $posterDir . DIRECTORY_SEPARATOR . $base . '.' . $ext;
-        if (is_file($candidate)) {
-            return 'videos/posters/' . rawurlencode($base . '.' . $ext);
+    $relPath = str_replace('\\', '/', (string) $stem);
+    if ($base !== '' && $base !== $relPath) {
+        $candidates[] = $base;
+    }
+
+    foreach ($candidates as $candidate) {
+        $relCandidate = $candidate . '.';
+        foreach ($posterExt as $ext) {
+            $file = $posterDir . DIRECTORY_SEPARATOR . $candidate . '.' . $ext;
+            if (is_file($file)) {
+                return 'videos/posters/' . encode_path_segments($relCandidate . $ext);
+            }
         }
     }
 

@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-theme="dark" data-accent="default">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -93,7 +93,16 @@
             </div>
             <div class="player-overlay" id="playerOverlay">
               <div class="timeline-wrap">
-                <input id="seekSlider" type="range" min="0" max="1000" value="0" step="1" aria-label="Seek" />
+                <div class="timeline-rail" id="timelineWrap">
+                  <div class="buffer-bar" id="bufferBar" hidden></div>
+                  <input id="seekSlider" type="range" min="0" max="1000" value="0" step="1" aria-label="Seek" />
+                  <div class="hover-preview" id="hoverPreview" hidden>
+                    <div class="hover-thumb" hidden>
+                      <canvas id="hoverPreviewCanvas" width="240" height="135"></canvas>
+                    </div>
+                    <span class="hover-time" id="hoverTimeLabel">00:00</span>
+                  </div>
+                </div>
                 <div class="timeline-labels">
                   <span id="currentTimeLabel">00:00</span>
                   <span id="totalTimeLabel">00:00</span>
@@ -167,6 +176,29 @@
               <label for="zoomSlider">Zoom level</label>
               <input id="zoomSlider" type="range" min="1" max="3" step="0.1" value="1" />
             </div>
+            <div class="setting-item">
+              <label for="themeSelect">Theme</label>
+              <select id="themeSelect">
+                <option value="auto">Auto (system)</option>
+                <option value="dark" selected>Dark</option>
+                <option value="light">Light</option>
+              </select>
+            </div>
+            <div class="setting-item">
+              <label for="accentSelect">Accent color</label>
+              <select id="accentSelect">
+                <option value="default" selected>Neutral</option>
+                <option value="amber">Amber</option>
+                <option value="teal">Teal</option>
+                <option value="blue">Blue</option>
+                <option value="rose">Rose</option>
+                <option value="violet">Violet</option>
+              </select>
+            </div>
+            <div class="setting-item toggle-item">
+              <label for="boostToggle">Volume boost (2x)</label>
+              <input id="boostToggle" type="checkbox" />
+            </div>
             <div class="setting-item toggle-item">
               <label for="autoplayToggle">Autoplay next</label>
               <input id="autoplayToggle" type="checkbox" checked />
@@ -176,11 +208,25 @@
               <input id="repeatToggle" type="checkbox" />
             </div>
           </div>
+
+          <div class="toast-stack" id="toastStack" aria-live="polite"></div>
         </section>
 
         <aside class="library-panel" id="libraryPanel">
           <div class="library-head">
             <h2>Library</h2>
+            <label class="sort-wrap" for="sortSelect">
+              <select id="sortSelect" title="Sort order">
+                <option value="title-asc">Title A→Z</option>
+                <option value="title-desc">Title Z→A</option>
+                <option value="duration-desc">Longest first</option>
+                <option value="duration-asc">Shortest first</option>
+                <option value="date-desc">Newest first</option>
+                <option value="date-asc">Oldest first</option>
+                <option value="size-desc">Largest first</option>
+                <option value="size-asc">Smallest first</option>
+              </select>
+            </label>
             <span id="resultCount">0 videos</span>
           </div>
           <div id="libraryList" class="library-list" aria-live="polite"></div>
@@ -198,12 +244,15 @@
       <dl class="shortcut-list">
         <div><dt><kbd>Space</kbd></dt><dd>Play / pause</dd></div>
         <div><dt><kbd>←</kbd> <kbd>→</kbd></dt><dd>Seek 5 seconds</dd></div>
+        <div><dt><kbd>↑</kbd> <kbd>↓</kbd></dt><dd>Volume up / down</dd></div>
+        <div><dt><kbd>,</kbd> <kbd>.</kbd></dt><dd>Step one frame back / forward</dd></div>
         <div><dt><kbd>N</kbd> / <kbd>P</kbd></dt><dd>Next / previous video</dd></div>
         <div><dt><kbd>F</kbd></dt><dd>Toggle fullscreen</dd></div>
         <div><dt><kbd>T</kbd></dt><dd>Theater mode</dd></div>
         <div><dt><kbd>M</kbd></dt><dd>Mute / unmute</dd></div>
         <div><dt><kbd>/</kbd></dt><dd>Focus search</dd></div>
         <div><dt><kbd>?</kbd></dt><dd>Show this dialog</dd></div>
+        <div><dt>Click end time</dt><dd>Toggle remaining time</dd></div>
         <div><dt>Double-click</dt><dd>Fullscreen on the video</dd></div>
       </dl>
       <p class="help-note">
