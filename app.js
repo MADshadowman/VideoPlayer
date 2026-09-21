@@ -37,6 +37,7 @@ const state = {
   sortKey: "title-asc",
   showRemaining: false,
   boostEnabled: false,
+  fillMode: false,
   zoomEnabled: false,
   zoomScale: 1,
   zoomX: 0,
@@ -89,6 +90,7 @@ const refs = {
   helpCloseBtn: document.getElementById("helpCloseBtn"),
   speedSelect: document.getElementById("speedSelect"),
   zoomSlider: document.getElementById("zoomSlider"),
+  fillToggle: document.getElementById("fillToggle"),
   autoplayToggle: document.getElementById("autoplayToggle"),
   repeatToggle: document.getElementById("repeatToggle"),
   boostToggle: document.getElementById("boostToggle"),
@@ -310,6 +312,7 @@ function bindEvents() {
   refs.speedSelect.addEventListener("change", onSpeedChange);
   refs.zoomSlider.addEventListener("input", onZoomSliderInput);
   refs.zoomToggleBtn.addEventListener("click", toggleZoomMode);
+  refs.fillToggle.addEventListener("change", onFillToggle);
   refs.autoplayToggle.addEventListener("change", onAutoplayToggle);
   refs.repeatToggle.addEventListener("change", onRepeatToggle);
   refs.miniPlayerBtn.addEventListener("click", toggleMiniPlayer);
@@ -402,6 +405,10 @@ function hydratePreferences() {
 
   state.boostEnabled = localStorage.getItem("vp_volume_boost") === "1";
   refs.boostToggle.checked = state.boostEnabled;
+
+  state.fillMode = localStorage.getItem("vp_fill_player") === "1";
+  refs.fillToggle.checked = state.fillMode;
+  refs.videoStage.dataset.fill = state.fillMode ? "on" : "off";
 
   const savedVolume = Number(localStorage.getItem("vp_volume") || "1");
   playerState.volume = Number.isFinite(savedVolume) ? clamp(savedVolume, 0, 1) : 1;
@@ -3302,6 +3309,12 @@ function onAutoplayToggle() {
 function onRepeatToggle() {
   state.repeatCurrent = refs.repeatToggle.checked;
   localStorage.setItem("vp_repeat_current", state.repeatCurrent ? "1" : "0");
+}
+
+function onFillToggle() {
+  state.fillMode = refs.fillToggle.checked;
+  localStorage.setItem("vp_fill_player", state.fillMode ? "1" : "0");
+  refs.videoStage.dataset.fill = state.fillMode ? "on" : "off";
 }
 
 function onZoomSliderInput() {
