@@ -2306,6 +2306,12 @@ async function seekPlaybackEngine(targetTimeSeconds, options = {}) {
       // ignore invalid seek
     }
     scheduleSeekUpdate();
+    if (shouldResume && refs.video.paused) {
+      refs.video.play().catch(() => {
+        playerState.paused = true;
+        syncPlaybackUi();
+      });
+    }
     return;
   }
 
@@ -2994,13 +3000,10 @@ function onSeekPointerDown(event) {
   } catch {
     // ignore capture errors
   }
-  if (state.activeEngine === "native") {
-    try {
-      refs.video.pause();
-    } catch {
-      // ignore
-    }
-  } else {
+  // The native engine live-seeks while playing, so scrubbing keeps the video
+  // running; MediaBunny pauses during a scrub because its preview rendering
+  // needs a quiescent clock, and resumes on release below.
+  if (state.activeEngine === "mediabunny") {
     pauseMediaBunnyEngine();
   }
 }
