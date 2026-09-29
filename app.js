@@ -112,7 +112,10 @@ let scrubPreviewTimer = 0;
 let scrubPreviewPendingTime = -1;
 let lastResumeWrite = Object.create(null);
 let libraryRenderTimer = 0;
+let searchRenderTimer = 0;
+let nativeFpsSamples = [];
 let lastPanEndTime = 0;
+let stageClickTimer = 0;
 let libraryLoadToken = 0;
 const thumbnailInFlight = new Set();
 const thumbnailDone = new Set();
@@ -275,7 +278,7 @@ async function bootstrap() {
     setEngineUi("native");
     loadLibrary();
   } catch (error) {
-    window.__vpErrors.push(`bootstrap: ${error?.stack || error}`);
+    (window.__vpErrors = window.__vpErrors || []).push(`bootstrap: ${error?.stack || error}`);
   }
 }
 
@@ -355,7 +358,7 @@ function hydrateTheme() {
   const themes = ["auto", "dark", "light"];
   const savedTheme = localStorage.getItem("vp_theme");
   state.theme = themes.includes(savedTheme) ? savedTheme : "dark";
-  const accents = ["default", "amber", "teal", "rose", "violet"];
+  const accents = ["default", "amber", "teal", "blue", "rose", "violet"];
   const savedAccent = localStorage.getItem("vp_accent");
   state.accent = accents.includes(savedAccent) ? savedAccent : "default";
   refs.themeSelect.value = state.theme;
@@ -589,7 +592,11 @@ async function fetchDirectoryIndexFallback(baseDir) {
       const source = new URL(cleanedHref, new URL(dir, window.location.href)).pathname;
       if (!unique.has(source)) {
         unique.add(source);
-        files.push({ src: source, title: fileName.replace(/\.[^.]+$/, "") });
+        files.push({
+          src: source,
+          id: slugify(source.replace(/\.[^.]+$/, "")),
+          title: fileName.replace(/\.[^.]+$/, ""),
+        });
       }
     }
 
@@ -763,6 +770,8 @@ function renderLibrary() {
   refs.libraryList.innerHTML = "";
   cardRefs.clear();
   disconnectThumbObserver();
+  thumbnailQueued.clear();
+  thumbnailQueue.length = 0;
 
   if (!state.filteredIndices.length) {
     setListStatus("No matching videos.");
@@ -1160,7 +1169,7 @@ async function extractFrameThumbnailWithMediaBunny(source) {
 
 function canvasToDataUrl(canvas) {
   if (canvas && typeof canvas.toDataURL === "function") {
-    return canvas.toDataURL("image/jpeg", 0.82);
+    return Promise.resolve(canvas.toDataURL("image/jpeg", 0.82));
   }
 
   if (canvas && typeof canvas.convertToBlob === "function") {
@@ -1815,7 +1824,8 @@ async function initAudioContextIfNeeded() {
   }
 
   if (mbEngine.gainNode) {
-    mbEngine.gainNode.gain.value = playerState.muted ? 0 : playerState.volume;
+      mbEngine.gainNode.gain.value =
+        playerState.muted ? 0 : playerState.volume * (state.boostEnabled ? VOLUME_BOOST_MULTIPLIER : 1);
   }
 }
 
@@ -1891,6 +1901,7 @@ async function prepareNativePlayback(source, startTimeSeconds = 0) {
   const width = Number(refs.video.videoWidth) || 0;
   const height = Number(refs.video.videoHeight) || 0;
   updateVideoStageAspect(width, height);
+  startNativeFpsSampling();
 }
 
 function waitForNativeMetadata() {
@@ -2891,6 +2902,23 @@ function stepFrame(direction) {
   seekPlaybackEngine(target, { resume: false }).catch(console.warn);
 }
 
+function startNativeFpsSampling() {
+  nativeFpsSamples = [];
+  if (typeof refs.video.requestVideoFrameCallback !== "function") {
+    return;
+  }
+  const sample = (_now, metadata) => {
+    if (state.activeEngine !== "native") {
+      return;
+    }
+    nativeFpsSamples.push(Number(metadata.mediaTime) || 0);
+    if (nativeFpsSamples.length < 40) {
+      refs.video.requestVideoFrameCallback(sample);
+    }
+  };
+  refs.video.requestVideoFrameCallback(sample);
+}
+
 function getTrackFrameRate() {
   if (state.activeEngine === "mediabunny" && mbEngine.videoTrack) {
     const candidates = [
@@ -2901,6 +2929,23 @@ function getTrackFrameRate() {
     ];
     for (const value of candidates) {
       const fps = Number(value);
+      if (Number.isFinite(fps) && fps > 1 && fps < 240) {
+        return fps;
+      }
+    }
+  }
+  if (state.activeEngine === "native" && nativeFpsSamples.length >= 3) {
+    const deltas = [];
+    for (let i = 1; i < nativeFpsSamples.length; i += 1) {
+      const delta = nativeFpsSamples[i] - nativeFpsSamples[i - 1];
+      if (delta > 0.001) {
+        deltas.push(delta);
+      }
+    }
+    if (deltas.length) {
+      deltas.sort((a, b) => a - b);
+      const medianDelta = deltas[Math.floor(deltas.length / 2)];
+      const fps = 1 / medianDelta;
       if (Number.isFinite(fps) && fps > 1 && fps < 240) {
         return fps;
       }
@@ -3454,7 +3499,13 @@ async function toggleMiniPlayer() {
 
 function onSearchInput() {
   state.searchTerm = refs.searchInput.value.trim();
-  renderLibrary();
+  if (searchRenderTimer) {
+    window.clearTimeout(searchRenderTimer);
+  }
+  searchRenderTimer = window.setTimeout(() => {
+    searchRenderTimer = 0;
+    renderLibrary();
+  }, 150);
 }
 
 function onStageClick(event) {
@@ -3468,13 +3519,16 @@ function onStageClick(event) {
   if (target.closest("#bigPlayBtn")) {
     return;
   }
-  if (event.detail === 2) {
-    return;
-  }
   if (state.isDraggingZoom || Date.now() - lastPanEndTime < 250) {
     return;
   }
-  togglePlayback();
+  if (stageClickTimer) {
+    window.clearTimeout(stageClickTimer);
+  }
+  stageClickTimer = window.setTimeout(() => {
+    stageClickTimer = 0;
+    togglePlayback();
+  }, 250);
 }
 
 function onStageDoubleClick(event) {
@@ -3487,6 +3541,10 @@ function onStageDoubleClick(event) {
   }
   if (state.isDraggingZoom || Date.now() - lastPanEndTime < 250) {
     return;
+  }
+  if (stageClickTimer) {
+    window.clearTimeout(stageClickTimer);
+    stageClickTimer = 0;
   }
   toggleFullscreen().catch(console.warn);
 }

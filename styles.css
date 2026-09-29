@@ -460,6 +460,7 @@ img {
 .big-play.hidden {
   opacity: 0;
   pointer-events: none;
+  visibility: hidden;
 }
 
 /* ---------- Meta ribbon ---------- */
@@ -497,6 +498,8 @@ img {
 
 /* ---------- Overlay controls ---------- */
 
+/* Overlay only intercepts clicks while visible so the lower part of the
+   video stays click-to-pause. */
 .player-overlay {
   position: absolute;
   inset: auto 0 0 0;
@@ -508,6 +511,7 @@ img {
   opacity: 0;
   transform: translateY(4px);
   transition: opacity 0.18s ease, transform 0.18s ease;
+  pointer-events: none;
 }
 
 .video-stage:hover .player-overlay,
@@ -518,11 +522,20 @@ img {
   transform: translateY(0);
 }
 
+.video-stage:hover .player-overlay,
+.video-stage:focus-within .player-overlay {
+  pointer-events: auto;
+}
+
 @media (hover: none) {
   .player-overlay,
   .meta-ribbon {
     opacity: 1;
     transform: none;
+  }
+
+  .player-overlay {
+    pointer-events: auto;
   }
 }
 
@@ -701,10 +714,6 @@ input[type="range"]::-moz-range-thumb {
   align-items: center;
   gap: 1.1rem;
   padding: 0.35rem 0.15rem;
-}
-
-.settings-panel[hidden] {
-  display: none;
 }
 
 .settings-panel label {

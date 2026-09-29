@@ -42,7 +42,8 @@ async function handle(req, res) {
   const pathname = decodeURIComponent(url.pathname);
 
   const filePath = path.normalize(path.join(root, pathname));
-  if (!filePath.startsWith(root)) {
+  const relPath = path.relative(root, filePath);
+  if (relPath.startsWith("..") || path.isAbsolute(relPath)) {
     res.writeHead(403).end("Forbidden");
     return;
   }
@@ -66,11 +67,12 @@ async function handle(req, res) {
         .filter((entry) => !entry.name.startsWith("."))
         .map((entry) => {
           const name = entry.isDirectory() ? `${entry.name}/` : entry.name;
-          return `<li><a href="${pathname.endsWith("/") ? pathname : `${pathname}/`}${name}">${name}</a></li>`;
+          const rawHref = `${pathname.endsWith("/") ? pathname : `${pathname}/`}${name}`;
+          return `<li><a href="${escapeHtml(rawHref)}">${escapeHtml(name)}</a></li>`;
         })
         .join("");
       res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" }).end(
-        `<!doctype html><meta charset="utf-8"><title>Index of ${pathname}</title><h1>Index of ${pathname}</h1><ul>${links}</ul>`
+        `<!doctype html><meta charset="utf-8"><title>Index of ${escapeHtml(pathname)}</title><h1>Index of ${escapeHtml(pathname)}</h1><ul>${links}</ul>`
       );
       return;
     }
@@ -79,13 +81,41 @@ async function handle(req, res) {
   return sendFile(res, filePath, stat, req.headers.range);
 }
 
+function escapeHtml(value) {
+  return String(value)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;");
+}
+
 async function sendFile(res, filePath, stat, rangeHeader) {
   const mime = MIME[path.extname(filePath).toLowerCase()] || "application/octet-stream";
+  const ext = path.extname(filePath).toLowerCase();
+  const cacheControl = [
+    ".mp4",
+    ".m4v",
+    ".webm",
+    ".ogv",
+    ".ogg",
+    ".mov",
+    ".mkv",
+    ".mp3",
+  ].includes(ext)
+    ? "public, max-age=3600"
+    : "no-cache";
 
   if (rangeHeader) {
     const match = /bytes=(\d*)-(\d*)/.exec(rangeHeader);
-    const start = match ? Number(match[1] || 0) : 0;
-    const end = match && match[2] ? Math.min(Number(match[2]), stat.size - 1) : stat.size - 1;
+    let start;
+    let end;
+    if (match && match[1] === "" && match[2] !== "") {
+      start = Math.max(0, stat.size - Number(match[2]));
+      end = stat.size - 1;
+    } else {
+      start = match ? Number(match[1] || 0) : 0;
+      end = match && match[2] ? Math.min(Number(match[2]), stat.size - 1) : stat.size - 1;
+    }
 
     if (Number.isNaN(start) || start >= stat.size || start > end) {
       res.writeHead(416, { "Content-Range": `bytes */${stat.size}` }).end();
@@ -97,7 +127,7 @@ async function sendFile(res, filePath, stat, rangeHeader) {
       "Content-Length": end - start + 1,
       "Content-Range": `bytes ${start}-${end}/${stat.size}`,
       "Accept-Ranges": "bytes",
-      "Cache-Control": "no-cache",
+      "Cache-Control": cacheControl,
     });
     const stream = (await import("node:fs")).createReadStream(filePath, { start, end });
     stream.pipe(res);
@@ -109,7 +139,7 @@ async function sendFile(res, filePath, stat, rangeHeader) {
     "Content-Type": mime,
     "Content-Length": stat.size,
     "Accept-Ranges": "bytes",
-    "Cache-Control": "no-cache",
+    "Cache-Control": cacheControl,
   });
   const stream = (await import("node:fs")).createReadStream(filePath);
   stream.pipe(res);

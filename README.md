@@ -12,7 +12,7 @@ on any web host (PHP optional) and it plays your files.
   native `<video>` element — hardware acceleration, Picture-in-Picture, instant
   seeking. For formats browsers can't play (MKV, MOV...), the app transparently
   switches to a [MediaBunny](https://mediabunny.dev)-powered canvas player.
-  Prefer an engine manually in *Settings → Playback engine*.
+  Unsupported formats fall back automatically — no manual switching needed.
 - **Auto-discovering library:** `videos.php` scans `videos/` server-side, groups
   multi-format variants per video, and matches poster art. Without PHP it falls
   back to a JSON manifest, directory listing, or local folder import.
@@ -89,6 +89,7 @@ VideoPlayer/
 | --- | --- |
 | `Space` | Play / pause |
 | `←` / `→` | Seek ±5 s |
+| `,` / `.` | Frame step back / forward |
 | `N` / `P` | Next / previous video |
 | `F` | Fullscreen |
 | `T` | Theater mode |
