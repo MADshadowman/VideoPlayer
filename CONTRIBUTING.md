@@ -19,7 +19,7 @@ That's it — no npm install, no build step.
 ## Ground rules
 
 - **Zero-build, zero-dependency:** the runtime is plain HTML/CSS/JS modules plus
-  the vendored `vendor/mediabunny.min.mjs`. Please don't add bundlers, npm
+  the vendored `vendor/mediabunny.min.cjs`. Please don't add bundlers, npm
   dependencies, or frameworks.
 - **Modern vanilla only:** ES modules, no transpilation. Target evergreen
   browsers.

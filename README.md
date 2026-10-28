@@ -106,6 +106,10 @@ play, extracting thumbnail frames, and probing metadata. It's bundled as a
 versioned file (`vendor/mediabunny.min.cjs`), so the player works fully offline
 with no CDN dependency.
 
+Bundled version: **1.63.0**, using the unmodified browser bundle from the
+[upstream release](https://github.com/Vanilagy/mediabunny/releases/tag/v1.63.0).
+Its SHA-256 is `b57f96fec81024e3d12661ef20e012c1b26a922d4eb92da820ffe2ed263f4149`.
+
 ## Notes
 
 - PiP depends on browser support and the native engine.
